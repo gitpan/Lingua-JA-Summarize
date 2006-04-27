@@ -1,0 +1,11 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+example/keyword.cgi
+lib/Lingua/JA/Summarize.pm
+t/01-new.t
+t/02-keyword.t
+t/data/kyoto.txt
+t/data/nobunaga.txt
+META.yml                                 Module meta-data (added by MakeMaker)
