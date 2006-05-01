@@ -4,6 +4,7 @@ MANIFEST
 README
 example/keyword.cgi
 lib/Lingua/JA/Summarize.pm
+t/00-util.t
 t/01-new.t
 t/02-keyword.t
 t/data/kyoto.txt

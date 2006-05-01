@@ -17,10 +17,20 @@ if ($text) {
     print "Keywords: ";
     my $s = Lingua::JA::Summarize->new;
     $s->analyze($text);
-    print join(' ', $s->keywords({
+    my @keywords = $s->keywords({
 	maxwords => $q->param('maxwords') || 5,
 	threshold => $q->param('threshold') || 5,
-    }));
+    });
+    if ($q->param('detailed') || 0) {
+	foreach my $k (@keywords) {
+	    my $info = $s->stats->{$k};
+	    printf("%s: (weight: %f, cost: %f, count: %d)<br>\n",
+		   escapeHTML($k), $info->{weight}, $info->{cost},
+		   $info->{count});
+	}
+    } else {
+	print escapeHTML(join(' ', @keywords));
+    }
 } else {
     $text = << "EOT";
  道路交通事故（人身事故に限る。以下本項において同じ。）の長期的推移をみると、戦後、昭和２０年代後半から４０年代半ばごろまでは、死傷者数が著しく増大しており、２６年から４５年までに死傷者数は３万５、７０３人から９９万７、８６１人へ、死者数は４、４２９人から１万６、７６５人へと増加している。
@@ -44,8 +54,8 @@ print << "EOT";
 <textarea name="txt" rows="25" cols="80">$text</textarea>
 <br>
 Number of Keywords: <select name="maxwords"><option>5<option>10<option>20</select><br>
-Threshold: <select name="threshold"><option>3<option selected>5<option>7<option>10<option>15</select>
-<br>
+Threshold: <select name="threshold"><option>1<option>3<option selected>5<option>7<option>10<option>15</select><br>
+Detailed: <input type="checkbox" name="detailed" value="1"><br>
 <input type="submit" value="キーワードを抽出">
 </form>
 EOT

@@ -3,7 +3,7 @@ package Lingua::JA::Summarize;
 use strict;
 use warnings;
 
-our $VERSION = 0.02;
+our $VERSION = 0.03;
 our @EXPORT_OK = qw(keyword_summary);
 our %EXPORT_TAGS = (all => \@EXPORT_OK);
 
@@ -15,7 +15,7 @@ use Jcode;
 
 
 
-__PACKAGE__->mk_accessors(qw(mecab default_cost ng omit_number singlechar_factor alnum_as_word url_as_word jaascii_as_word));
+__PACKAGE__->mk_accessors(qw(mecab default_cost ng omit_number singlechar_factor alnum_as_word url_as_word jaascii_as_word stats wordcount));
 
 
 sub NG () {
@@ -23,10 +23,14 @@ sub NG () {
     @map{('(', ')', '#', ',')} = ();
     @map{qw(! " $ % & ' * + - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~)} = ();
     @map{
-	qw(¿Í ÉÃ Ê¬ »þ Æü ·î Ç¯ ±ß ¥É¥ë
-	   °ì Æó »° »Í ¸Þ Ï» ¼· È¬ ¶å ½½ É´ Àé Ëü ²¯ Ãû)} = ();
+       qw(¿Í ÉÃ Ê¬ »þ Æü ·î Ç¯ ±ß ¥É¥ë
+          °ì Æó »° »Í ¸Þ Ï» ¼· È¬ ¶å ½½ É´ Àé Ëü ²¯ Ãû)} = ();
     @map{qw(¢¬ ¢­ ¢« ¢ª ¢Í ¢Î)} = ();
     \%map;
+}
+
+sub DEFAULT_COST_FACTOR () {
+    return 2000;
 }
 
 sub new {
@@ -36,13 +40,15 @@ sub new {
     my $self = bless { %$fields }, $class;
     
     $self->{mecab} = 'mecab' unless $self->{mecab};
-    $self->{default_cost} = 800 unless $self->{default_cost};
+    $self->{default_cost} = 1 unless $self->{default_cost};
     $self->{ng} = NG unless defined $self->{ng};
     $self->{omit_number} = 1 unless defined $self->{omit_number};
     $self->{singlechar_factor} = 0.5 unless defined $self->{singlechar_factor};
     $self->{alnum_as_word} = 1 unless defined $self->{alnum_as_word};
     $self->{url_as_word} = 1 unless defined $self->{url_as_word};
     $self->{jaascii_as_word} = 1 unless defined $self->{jaascii_as_word};
+    
+    $self->{wordcount} = 0;
     
     return $self;
 }
@@ -56,12 +62,12 @@ sub keywords {
     my @keywords;
     
     foreach my $word (sort
-		      { $stats->{$b}->{weight} <=> $stats->{$a}->{weight} ||
-			    $a cmp $b }
-		      keys(%$stats)) {
-	last if $stats->{$word}->{weight} < $threshold;
-	push(@keywords, $word);
-	last if $maxwords == @keywords;
+                      { $stats->{$b}->{weight} <=> $stats->{$a}->{weight} ||
+                            $a cmp $b }
+                      keys(%$stats)) {
+        last if $stats->{$word}->{weight} < $threshold;
+        push(@keywords, $word);
+        last if $maxwords == @keywords;
     }
     
     return @keywords;
@@ -101,70 +107,70 @@ sub analyze {
     
     # open mecab
     my $mecab = $self->mecab;
-    my $def_cost = $self->default_cost;
+    my $def_cost = $self->default_cost * DEFAULT_COST_FACTOR;
     open($fh, '-|',
-	 $mecab .
-	 " --node-format='%m\t%pn\t%pw\t%H\n'" .
-	 " --unk-format='%m\t$def_cost\t$def_cost\tUnkType\n'" .
-	 " --bos-format='\n'" .
-	 " --eos-format='\n'" .
-	 " $tempfile")
-	|| croak("failed to call mecab ($mecab): $!");
+         $mecab .
+         " --node-format='%m\t%pn\t%pw\t%H\n'" .
+         " --unk-format='%m\t$def_cost\t$def_cost\tUnkType\n'" .
+         " --bos-format='\n'" .
+         " --eos-format='\n'" .
+         " $tempfile")
+        || croak("failed to call mecab ($mecab): $!");
     
     # read from mecab
     my $longword = {
-	text => '',
-	cost => 0,
-	count => 0,
+        text => '',
+        cost => 0,
+        count => 0,
     };
     my $add_longword  = sub {
-	if ($longword->{text}) {
-	    $self->_add_word($longword->{text},
-			     $longword->{cost} / $longword->{count});
-	}
-	$longword->{text} = '';
-	$longword->{cost} = 0;
-	$longword->{count} = 0;
+        if ($longword->{text}) {
+            $self->_add_word($longword->{text},
+                             $longword->{cost} / (log($longword->{count}) * 0.7 + 1));
+        }
+        $longword->{text} = '';
+        $longword->{cost} = 0;
+        $longword->{count} = 0;
     };
     while (my $line = <$fh>) {
-	chomp($line);
-	if ($line =~ /\t/o) {
-	    my ($word, $pn, $pw, $H) = split(/\t/, $line, 4);
-	    $word = $self->_postfilter($word);
-	    $word = $self->_normalize_word($word);
-	    my $ng = $self->_ng_word($word);
-	    if ($ng) {
-		$add_longword->();
-		next;
-	    }
-	    if ($H =~ /^Ì¾»ì/) {
-		if ($H =~ /(Èó¼«Î©|ÂåÌ¾»ì)/) {
-		    $add_longword->();
-		    next;
-		} elsif (! $longword->{text} && $H =~ /ÀÜÈø/) {
-		    # ng
-		    next;
-		}
-	    } elsif ($H eq 'UnkType') {
-		# handle unknown (mostly English) words
-		if ($self->jaascii_as_word) {
-		    if ($word =~ /^\w/ && $longword->{text} =~ /\w$/) {
-			$add_longword->();
-		    }
-		} else {
-		    $add_longword->();
-		    $self->_add_word($word, $pw);
-		}
-	    } else {
-		$add_longword->();
-		next;
-	    }
-	    $longword->{text} .= $word;
-	    $longword->{cost} += $longword->{count} ? $pn : $pw;
-	    $longword->{count}++;
-	} else {
-	    $add_longword->();
-	}
+        chomp($line);
+        if ($line =~ /\t/o) {
+            my ($word, $pn, $pw, $H) = split(/\t/, $line, 4);
+            $word = $self->_postfilter($word);
+            $word = $self->_normalize_word($word);
+            my $ng = $self->_ng_word($word);
+            if ($ng) {
+                $add_longword->();
+                next;
+            }
+            if ($H =~ /^Ì¾»ì/) {
+                if ($H =~ /(Èó¼«Î©|ÂåÌ¾»ì)/) {
+                    $add_longword->();
+                    next;
+                } elsif (! $longword->{text} && $H =~ /ÀÜÈø/) {
+                    # ng
+                    next;
+                }
+            } elsif ($H eq 'UnkType') {
+                # handle unknown (mostly English) words
+                if ($self->jaascii_as_word) {
+                    if ($word =~ /^\w/ && $longword->{text} =~ /\w$/) {
+                        $add_longword->();
+                    }
+                } else {
+                    $add_longword->();
+                    $self->_add_word($word, $pw);
+                }
+            } else {
+                $add_longword->();
+                next;
+            }
+            $longword->{text} .= $word;
+            $longword->{cost} += $pw; # do not use $pn
+            $longword->{count}++;
+        } else {
+            $add_longword->();
+        }
     }
     $add_longword->();
     close $fh;
@@ -179,24 +185,26 @@ sub analyze {
 sub _add_word {
     my ($self, $word, $cost) = @_;
     return if $cost <= 0;
+    $self->{wordcount}++;
     my $target = $self->{stats}->{$word};
     if ($target) {
-	$target->{count}++;
+        $target->{count}++;
     } else {
-	$self->{stats}->{$word} = { count => 1, cost => $cost };
+        $self->{stats}->{$word} = { count => 1, cost => $cost };
     }
 }
 
 sub _calc_weight {
     my $self = shift;
     foreach my $word (keys(%{$self->{stats}})) {
-	my $target = $self->{stats}->{$word};
-	my $cost = $target->{cost};
-	$cost = $self->default_cost unless $cost;
-	$target->{weight} = $target->{count} * log(65536 / $cost);
-	if (length($word) == 1) {
-	    $target->{weight} *= $self->singlechar_factor;
-	}
+        my $target = $self->{stats}->{$word};
+        my $cost = $target->{cost};
+        $cost = $self->default_cost * DEFAULT_COST_FACTOR unless $cost;
+        $target->{weight} =
+            ($target->{count} - 0.5) * $cost / $self->{wordcount} / 6;
+        if (length($word) == 1) {
+            $target->{weight} *= $self->singlechar_factor;
+        }
     }
 }
 
@@ -211,20 +219,20 @@ sub _ng_word {
     my ($self, $word) = @_;
     return 1 if $self->omit_number && $word =~ /^\d*$/;
     return
-	exists($self->{ng}->{$word}) ||
-	exists($self->{ng}->{substr($word, 0, 1)});
+        exists($self->{ng}->{$word}) ||
+        exists($self->{ng}->{substr($word, 0, 1)});
 }
 
 sub _prefilter {
     my ($self, $text) = @_;
     if ($self->alnum_as_word) {
-	if ($self->url_as_word) {
-	    $text =~
-		s!(https?://[A-Za-z0-9.:_/?#~\$\-=&%]+|[A-Za-z0-9_][A-Za-z0-9_.']*[A-Za-z0-9_])!_encode_ascii_word($1)!eg;
+        if ($self->url_as_word) {
+            $text =~
+                s!(https?://[A-Za-z0-9.:_/?#~\$\-=&%]+|[A-Za-z0-9_][A-Za-z0-9_.']*[A-Za-z0-9_])!_encode_ascii_word($1)!eg;
         } else {
-	    $text =~
-		s!([A-Za-z0-9_][A-Za-z0-9_.']*[A-Za-z0-9_])!_encode_ascii_word($1)!eg;
-	}
+            $text =~
+                s!([A-Za-z0-9_][A-Za-z0-9_.']*[A-Za-z0-9_])!_encode_ascii_word($1)!eg;
+        }
     }
     $text;
 }
@@ -232,8 +240,8 @@ sub _prefilter {
 sub _postfilter {
     my ($self, $word) = @_;
     if ($word =~ /^[A-Za-z]+$/ &&
-	($self->alnum_as_word || $self->url_as_word)) {
-	$word = _decode_ascii_word($word);
+        ($self->alnum_as_word || $self->url_as_word)) {
+        $word = _decode_ascii_word($word);
     }
     $word;
 }
@@ -248,8 +256,8 @@ sub _decode_ascii_char {
     my ($str) = @_;
     my $offset = ord('a');
     return
-	chr((ord(substr($str, 1, 1)) - $offset) * 16 +
-	    ord(substr($str, 2, 1)) - $offset);
+        chr((ord(substr($str, 1, 1)) - $offset) * 16 +
+            ord(substr($str, 2, 1)) - $offset);
 }
 
 sub _encode_ascii_word {
@@ -272,15 +280,15 @@ sub _normalize_japanese {
     my ($in) = @_;
     my $out;
     while ($in =~ /([\x80-\xff]{2})/) {
-	$out .= $`;
-	$in = $';
-	if ($1 eq '¡£' || $1 eq '¡¥') {
-	    $out .= "¡£\n";
-	} elsif ($1 eq '¡¤') {
-	    $out .= "¡¢";
-	} else {
-	    $out .= $1;
-	}
+        $out .= $`;
+        $in = $';
+        if ($1 eq '¡£' || $1 eq '¡¥') {
+            $out .= "¡£\n";
+        } elsif ($1 eq '¡¤') {
+            $out .= "¡¢";
+        } else {
+            $out .= $1;
+        }
     }
     $out .= $in;
     return $out;
@@ -393,7 +401,7 @@ The default is true.
 
 =item default_cost([number])
 
-Sets or retrieves the default cost applied for unknown words.  The default is 800.
+Sets or retrieves the default cost applied for unknown words.  The default is 1.0.
 
 =item jaascii_as_word([boolean])
 
@@ -417,9 +425,17 @@ Sets or retrieves a flag indicating whether or not to omit numbers.
 
 Sets or retrieves a factor value to be used for calculating weight of single-character words.  The default is 0.5.
 
+=item stats()
+
+Returns list of statistics.
+
 =item url_as_word([boolean])
 
 Sets or retrieves a flag indicating whether or not to treat URLs as single words.
+
+=item wordcount()
+
+Returns number of the words analyzed.
 
 =back
 

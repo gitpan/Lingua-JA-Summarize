@@ -12,9 +12,9 @@ eval {
     $s->analyze('This is a test.');
 };
 is($@, '', 'analyze');
-is($s->{stats}->{this}->{count}, 1, 'check word count');
-is($s->{stats}->{this}->{cost}, $s->default_cost, 'check word cost');
-is(int($s->{stats}->{this}->{weight} * 10), 44, 'check word weight');
+is($s->stats->{this}->{count}, 1, 'check word count');
+is($s->stats->{this}->{cost}, 2000, 'check word cost');
+is(int($s->{stats}->{this}->{weight}), 41, 'check word weight');
 
 eval {
     $s->analyze('This is a test.');
@@ -38,12 +38,12 @@ eval {
     $s->analyze_file('t/data/kyoto.txt');
 };
 is($@, '', 'analyze existing file');
-is($s->keywords, 5);
-is($s->keywords({ threshold => 10000 }), 0);
-is($s->keywords({ threshold => 0, maxwords => 10 }), 10);
+is($s->keywords, 5, 'number of keywords found');
+is($s->keywords({ threshold => 10000 }), 0, 'inf. threshold');
+is($s->keywords({ threshold => -1000, maxwords => 10 }), 10, 'min. threshold');
 
 $s = Lingua::JA::Summarize->new;
 $s->analyze_file('t/data/nobunaga.txt');
-is(scalar($s->keywords), 5);
+is(scalar($s->keywords), 1, 'number of keywords found - 2');
 
-is(keyword_summary('This is a test.', { threshold => -1000 }), 4);
+is(keyword_summary('This is a test.', { threshold => -1000 }), 4, 'static method');

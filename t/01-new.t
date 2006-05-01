@@ -13,12 +13,12 @@ eval {
 };
 is(ref($s), "Lingua::JA::Summarize", 'constructor');
 is($s->mecab, 'mecab', 'default mecab path');
-is($s->default_cost, 800, 'default cost');
+is($s->default_cost, 1, 'default cost');
 
 $s = Lingua::JA::Summarize->new({
     mecab => '/tmp/bin/mecab',
-    default_cost => 1000,
+    default_cost => 0.5,
 });
 is($s->mecab, '/tmp/bin/mecab', 'customize mecab path');
-is($s->default_cost, 1000, 'customize default cost');
+is($s->default_cost, 0.5, 'customize default cost');
 
