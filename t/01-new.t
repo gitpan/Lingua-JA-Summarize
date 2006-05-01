@@ -12,7 +12,7 @@ eval {
     $s = Lingua::JA::Summarize->new;
 };
 is(ref($s), "Lingua::JA::Summarize", 'constructor');
-is($s->mecab, 'mecab', 'default mecab path');
+is($s->mecab, $ENV{LJS_MECAB} || 'mecab', 'default mecab path');
 is($s->default_cost, 1, 'default cost');
 
 $s = Lingua::JA::Summarize->new({

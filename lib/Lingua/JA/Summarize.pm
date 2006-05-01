@@ -3,8 +3,8 @@ package Lingua::JA::Summarize;
 use strict;
 use warnings;
 
-our $VERSION = 0.03;
-our @EXPORT_OK = qw(keyword_summary);
+our $VERSION = 0.04;
+our @EXPORT_OK = qw(keyword_summary file_keyword_summary);
 our %EXPORT_TAGS = (all => \@EXPORT_OK);
 
 use base qw(Exporter Class::Accessor::Fast Class::ErrorHandler);
@@ -14,39 +14,45 @@ use File::Temp qw(:POSIX);
 use Jcode;
 
 
-
-__PACKAGE__->mk_accessors(qw(mecab default_cost ng omit_number singlechar_factor alnum_as_word url_as_word jaascii_as_word stats wordcount));
-
-
 sub NG () {
-    my %map;
-    @map{('(', ')', '#', ',')} = ();
-    @map{qw(! " $ % & ' * + - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~)} = ();
-    @map{
-       qw(¿Í ÉÃ Ê¬ »þ Æü ·î Ç¯ ±ß ¥É¥ë
-          °ì Æó »° »Í ¸Þ Ï» ¼· È¬ ¶å ½½ É´ Àé Ëü ²¯ Ãû)} = ();
-    @map{qw(¢¬ ¢­ ¢« ¢ª ¢Í ¢Î)} = ();
-    \%map;
+    my %map = map { $_ => 1 } (
+        '(', ')', '#', ',', '"', "'", '`',
+        qw(! $ % & * + - . / : ; < = > ? @ [ \ ] ^ _ { | } ~
+           ¿Í ÉÃ Ê¬ »þ Æü ·î Ç¯ ±ß ¥É¥ë
+           °ì Æó »° »Í ¸Þ Ï» ¼· È¬ ¶å ½½ É´ Àé Ëü ²¯ Ãû
+           ¢¬ ¢­ ¢« ¢ª ¢Í ¢Î),
+    );
+    return \%map;
 }
 
 sub DEFAULT_COST_FACTOR () {
     return 2000;
 }
 
+my %Defaults = (
+    alnum_as_word => 1,
+    charset => 'euc',
+    default_cost => 1,
+    jaascii_as_word => 1,
+    ng => NG(),
+    mecab => 'mecab',
+    mecab_charset => 'euc',
+    omit_number => 1,
+    singlechar_factor => 0.5,
+    url_as_word => 1,
+);
+
+foreach my $k (keys %Defaults) {
+    $Defaults{$k} = $ENV{'LJS_' . uc($k)} || $Defaults{$k};
+}
+
+__PACKAGE__->mk_accessors(keys %Defaults, qw(stats wordcount));
+
 sub new {
     my ($proto, $fields) = @_;
     my $class = ref $proto || $proto;
     $fields = {} unless defined $fields;
-    my $self = bless { %$fields }, $class;
-    
-    $self->{mecab} = 'mecab' unless $self->{mecab};
-    $self->{default_cost} = 1 unless $self->{default_cost};
-    $self->{ng} = NG unless defined $self->{ng};
-    $self->{omit_number} = 1 unless defined $self->{omit_number};
-    $self->{singlechar_factor} = 0.5 unless defined $self->{singlechar_factor};
-    $self->{alnum_as_word} = 1 unless defined $self->{alnum_as_word};
-    $self->{url_as_word} = 1 unless defined $self->{url_as_word};
-    $self->{jaascii_as_word} = 1 unless defined $self->{jaascii_as_word};
+    my $self = bless { %Defaults, %$fields }, $class;
     
     $self->{wordcount} = 0;
     
@@ -58,14 +64,15 @@ sub keywords {
     $args = {} unless $args;
     my $threshold = $args->{threshold} || 5;
     my $maxwords = $args->{maxwords} || 5;
+    my $minwords = $args->{minwords} || 0;
     my $stats = $self->{stats};
     my @keywords;
     
-    foreach my $word (sort
-                      { $stats->{$b}->{weight} <=> $stats->{$a}->{weight} ||
-                            $a cmp $b }
-                      keys(%$stats)) {
-        last if $stats->{$word}->{weight} < $threshold;
+    foreach my $word (
+        sort { $stats->{$b}->{weight} <=> $stats->{$a}->{weight} || $a cmp $b }
+            keys(%$stats)) {
+        last if
+            $minwords <= @keywords && $stats->{$word}->{weight} < $threshold;
         push(@keywords, $word);
         last if $maxwords == @keywords;
     }
@@ -76,12 +83,8 @@ sub keywords {
 sub analyze_file {
     my ($self, $file) = @_;
     
-    my $fh;
-    open($fh, '<', "$file") || croak("failed to open: $file: $!");
-    my $slash = $/;
-    undef $/;
-    my $text = <$fh>;
-    $/ = $slash;
+    open my $fh, '<', $file or croak("failed to open: $file: $!");
+    my $text = do { local $/; <$fh> };
     close $fh;
     
     $self->analyze($text);
@@ -89,16 +92,18 @@ sub analyze_file {
 
 sub analyze {
     my ($self, $text) = @_;
-    my ($rfh, $wfh);
     
     croak("already analyzed") if $self->{stats};
     $self->{stats} = {};
     
     # adjust text
+    Jcode::convert(\$text, 'euc', $self->charset) if $self->charset ne 'euc';
     $text = $self->_prefilter($text);
     $text =~ s/\s*\n\s*/\n/sg;
     $text .= "\n";
     $text = _normalize_japanese($text);
+    Jcode::convert(\$text, $self->mecab_charset, 'euc')
+            if $self->mecab_charset ne 'euc';
     
     # write text to temporary file
     my ($fh, $tempfile) = tmpnam();
@@ -108,14 +113,16 @@ sub analyze {
     # open mecab
     my $mecab = $self->mecab;
     my $def_cost = $self->default_cost * DEFAULT_COST_FACTOR;
-    open($fh, '-|',
-         $mecab .
-         " --node-format='%m\t%pn\t%pw\t%H\n'" .
-         " --unk-format='%m\t$def_cost\t$def_cost\tUnkType\n'" .
-         " --bos-format='\n'" .
-         " --eos-format='\n'" .
-         " $tempfile")
-        || croak("failed to call mecab ($mecab): $!");
+    my $mecab_cmd = join(' ', (
+        $mecab,
+        q(--node-format="%m\t%pn\t%pw\t%H\n"),
+        sprintf(
+            q(--unk-format="%%m\t%d\t%d\tUnkType\n"), $def_cost, $def_cost),
+        q(--bos-format="\n"),
+        q(--eos-format="\n"),
+        $tempfile,
+    ));
+    open $fh, '-|', $mecab_cmd or croak("failed to call mecab ($mecab): $!");
     
     # read from mecab
     my $longword = {
@@ -125,8 +132,9 @@ sub analyze {
     };
     my $add_longword  = sub {
         if ($longword->{text}) {
-            $self->_add_word($longword->{text},
-                             $longword->{cost} / (log($longword->{count}) * 0.7 + 1));
+            $self->_add_word(
+                $longword->{text},
+                $longword->{cost} / (log($longword->{count}) * 0.7 + 1));
         }
         $longword->{text} = '';
         $longword->{cost} = 0;
@@ -134,6 +142,8 @@ sub analyze {
     };
     while (my $line = <$fh>) {
         chomp($line);
+        Jcode::convert(\$line, 'euc', $self->mecab_charset)
+                if $self->mecab_charset ne 'euc';
         if ($line =~ /\t/o) {
             my ($word, $pn, $pw, $H) = split(/\t/, $line, 4);
             $word = $self->_postfilter($word);
@@ -186,6 +196,7 @@ sub _add_word {
     my ($self, $word, $cost) = @_;
     return if $cost <= 0;
     $self->{wordcount}++;
+    Jcode::convert(\$word, $self->charset, 'euc') if $self->charset ne 'euc';
     my $target = $self->{stats}->{$word};
     if ($target) {
         $target->{count}++;
@@ -220,7 +231,7 @@ sub _ng_word {
     return 1 if $self->omit_number && $word =~ /^\d*$/;
     return
         exists($self->{ng}->{$word}) ||
-        exists($self->{ng}->{substr($word, 0, 1)});
+            exists($self->{ng}->{substr($word, 0, 1)});
 }
 
 sub _prefilter {
@@ -240,7 +251,7 @@ sub _prefilter {
 sub _postfilter {
     my ($self, $word) = @_;
     if ($word =~ /^[A-Za-z]+$/ &&
-        ($self->alnum_as_word || $self->url_as_word)) {
+            ($self->alnum_as_word || $self->url_as_word)) {
         $word = _decode_ascii_word($word);
     }
     $word;
@@ -257,7 +268,7 @@ sub _decode_ascii_char {
     my $offset = ord('a');
     return
         chr((ord(substr($str, 1, 1)) - $offset) * 16 +
-            ord(substr($str, 2, 1)) - $offset);
+                ord(substr($str, 2, 1)) - $offset);
 }
 
 sub _encode_ascii_word {
@@ -301,6 +312,13 @@ sub keyword_summary {
     return $s->keywords($args);
 }
 
+sub file_keyword_summary {
+    my ($file, $args) = @_;
+    my $s = Lingua::JA::Summarize->new($args);
+    $s->analyze_file($file);
+    return $s->keywords($args);
+}
+
 
 1;
 __END__
@@ -316,6 +334,9 @@ Lingua::JA::Summarize - A keyword extractor / summary generator
     use Lingua::JA::Summarize qw(:all);
 
     @keywords = keyword_summary('You need longer text to obtain keywords');
+    print join(' ', @keywords) . "\n";
+
+    @keywords = file_keywords_summary('filename_to_analyze.txt');
     print join(' ', @keywords) . "\n";
 
     # OO style

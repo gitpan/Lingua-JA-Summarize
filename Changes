@@ -1,16 +1,22 @@
 Revision history for Perl extension Lingua::JA::Summarize.
 
+0.04  Tue May 02 04:45:01 2006
+	- default preferences now set by %Defaults
+	- support for non-EUC charsets
+	- introduced new property `minwords' for `keywords' function
+	- follow PBP coding rules
+
 0.03  Mon May 01 10:31:01 2006
-        - fix tf/idf calculation bug, re-adjust parameters
-        - add accessors stats, wordcount
-        - API change - default value of default_cost is now 1.0
-        - add t/00_util.t to dist
-        
+	- fix tf/idf calculation bug, re-adjust parameters
+	- add accessors stats, wordcount
+	- API change - default value of default_cost is now 1.0
+	- add t/00_util.t to dist
+	
 0.02  Thr Apr 27 14:48:01 2006
-        - better handling of English words, like o'reilly or 30boxes
-        - fix regex bug on handling periods (thanks to tatsuwo-san)
-        - more documentation
-        - fix bug in example/keyword.cgi
+	- better handling of English words, like o'reilly or 30boxes
+	- fix regex bug on handling periods (thanks to tatsuwo-san)
+	- more documentation
+	- fix bug in example/keyword.cgi
 
 0.01  Wed Apr 26 14:03:44 2006
-        - initial release
+	- initial release
