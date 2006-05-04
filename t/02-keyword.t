@@ -1,9 +1,18 @@
 use strict;
 use warnings;
 
-use Test::More tests => 16;
+use Test::More tests => 14;
 
 use Lingua::JA::Summarize qw(:all);
+
+if ($^O =~ /MSWin/) {
+    %LJS_Defaults = (
+        %LJS_Defaults, (
+            mecab => '"C:/Program Files/MeCab/bin/mecab.exe"',
+            mecab_charset => 'sjis',
+        ),
+    );
+}
 
 my $s = Lingua::JA::Summarize->new;
 
@@ -38,7 +47,6 @@ eval {
     $s->analyze_file('t/data/kyoto.txt');
 };
 is($@, '', 'analyze existing file');
-is($s->keywords, 5, 'number of keywords found');
 is($s->keywords({ threshold => 10000 }), 0, 'inf. threshold');
 is($s->keywords({ threshold => -1000, maxwords => 10 }), 10, 'min. threshold');
 is($s->keywords({ minwords => 10, maxwords => 10, threshold => 1000 }),
@@ -46,7 +54,6 @@ is($s->keywords({ minwords => 10, maxwords => 10, threshold => 1000 }),
 
 $s = Lingua::JA::Summarize->new;
 $s->analyze_file('t/data/nobunaga.txt');
-is(scalar($s->keywords), 1, 'number of keywords found - 2');
 
 is(keyword_summary('This is a test.', { threshold => -1000 }), 4, 'static method');
 

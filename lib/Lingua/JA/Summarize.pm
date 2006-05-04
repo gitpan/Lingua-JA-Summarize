@@ -3,9 +3,13 @@ package Lingua::JA::Summarize;
 use strict;
 use warnings;
 
-our $VERSION = 0.04;
-our @EXPORT_OK = qw(keyword_summary file_keyword_summary);
-our %EXPORT_TAGS = (all => \@EXPORT_OK);
+our $VERSION = 0.05;
+our @EXPORT_OK =
+    qw(keyword_summary file_keyword_summary
+        %LJS_Defaults %LJS_Defaults_keywords);
+our %EXPORT_TAGS = (
+    all => \@EXPORT_OK,
+);
 
 use base qw(Exporter Class::Accessor::Fast Class::ErrorHandler);
 
@@ -41,9 +45,10 @@ my %Defaults = (
     singlechar_factor => 0.5,
     url_as_word => 1,
 );
-
+our %LJS_Defaults = ();
 foreach my $k (keys %Defaults) {
-    $Defaults{$k} = $ENV{'LJS_' . uc($k)} || $Defaults{$k};
+    my $n = 'LJS_' . uc($k);
+    $LJS_Defaults{$k} = $ENV{$n} if defined $ENV{$n};
 }
 
 __PACKAGE__->mk_accessors(keys %Defaults, qw(stats wordcount));
@@ -51,20 +56,35 @@ __PACKAGE__->mk_accessors(keys %Defaults, qw(stats wordcount));
 sub new {
     my ($proto, $fields) = @_;
     my $class = ref $proto || $proto;
-    $fields = {} unless defined $fields;
-    my $self = bless { %Defaults, %$fields }, $class;
+    my $self = bless {
+        %Defaults,
+        %LJS_Defaults,
+        ($fields ? %$fields : ()),
+    }, $class;
     
     $self->{wordcount} = 0;
     
     return $self;
 }
 
+my %Defaults_keywords = (
+    maxwords => 5,
+    minwords => 0,
+    threshold => 5
+);
+our %LJS_Defaults_keywords = ();
+foreach my $k (keys %Defaults_keywords) {
+    my $n = 'LJS_KEYWORDS_' . uc($k);
+    $LJS_Defaults_keywords{$k} = $ENV{$n} if defined $ENV{$n};
+}
+
 sub keywords {
-    my ($self, $args) = @_;
-    $args = {} unless $args;
-    my $threshold = $args->{threshold} || 5;
-    my $maxwords = $args->{maxwords} || 5;
-    my $minwords = $args->{minwords} || 0;
+    my ($self, $_args) = @_;
+    my %args = (
+        %Defaults_keywords,
+        %LJS_Defaults_keywords,
+        ($_args ? %$_args : ()),
+    );
     my $stats = $self->{stats};
     my @keywords;
     
@@ -72,9 +92,10 @@ sub keywords {
         sort { $stats->{$b}->{weight} <=> $stats->{$a}->{weight} || $a cmp $b }
             keys(%$stats)) {
         last if
-            $minwords <= @keywords && $stats->{$word}->{weight} < $threshold;
+            $args{minwords} <= @keywords
+                && $stats->{$word}->{weight} < $args{threshold};
         push(@keywords, $word);
-        last if $maxwords == @keywords;
+        last if $args{maxwords} == @keywords;
     }
     
     return @keywords;
@@ -333,10 +354,16 @@ Lingua::JA::Summarize - A keyword extractor / summary generator
     
     use Lingua::JA::Summarize qw(:all);
 
-    @keywords = keyword_summary('You need longer text to obtain keywords');
+    @keywords = keyword_summary('You need longer text to get keywords', {
+        minwords => 3,
+        maxwords => 5,
+    });
     print join(' ', @keywords) . "\n";
 
-    @keywords = file_keywords_summary('filename_to_analyze.txt');
+    @keywords = file_keywords_summary('filename_to_analyze.txt', {
+        minwords => 3,
+        maxwords => 5,
+    });
     print join(' ', @keywords) . "\n";
 
     # OO style
@@ -348,7 +375,7 @@ Lingua::JA::Summarize - A keyword extractor / summary generator
     $s->analyze('You need longer text to obtain keywords');
     $s->analyze_file('filename_to_analyze.txt');
 
-    @keywords = $s->keywords;
+    @keywords = $s->keywords({ minwords => 3, maxwords => 5 });
     print join(' ', @keywords) . "\n";
     
 
@@ -396,11 +423,15 @@ Returns an array of keywords.  Following parameters are available for controllin
 
 =item maxwords
 
-Maximum number of words.  The default is 5.
+Maximum number of keywords to be returned.  The default is 5.
+
+=item minwords
+
+Minimum number of keywords to be returned.  The default is 0.
 
 =item threshold
 
-Threshold for the calculated significance value to be treated as a keyword.
+Threshold for the calculated significance value to be treated as a keyword.  The properties C<maxwords> and C<minwords> have precedence to this property.
 
 =back
 
@@ -416,7 +447,7 @@ Use the descibed member functions to control the behaviour of the analyzer.
 
 Sets or retrives a flag indicating whether or not, not to split a word consisting of alphabets and numerics.  Also controls the splitting of apostrophies.
 
-If set to false, "O'reilly" would be treated as "o reilly", "30boxes" as "30 boxes".
+If set to false, "O'Reilly" would be treated as "o reilly", "30boxes" as "30 boxes".
 
 The default is true.
 
@@ -460,6 +491,26 @@ Returns number of the words analyzed.
 
 =back
 
+=head1 CONTROLLING THE BEHAVIOUR GLOBALLY
+
+The default properties can be modified by setting %Lingua::JA::Summarize::LJS_Defaults or by setting environment variable with the property names uppercased and with LJS_ prefix.
+
+For example, to set the mecab_charset property,
+
+=over 4
+
+=item 1) setting through perl
+
+use Lingua::JA::Summarize qw(:all);
+
+$LJS_Defaults{mecab_charset} = 'sjis' unless defined $LJS_Defaults{mecab_charset};
+
+=item 2) setting through environment variable
+
+% LJS_MECAB_CHARSET=sjis perl -Ilib t/02-keyword.t
+
+=back
+
 =head1 STATIC FUNCTIONS
 
 =over 4
@@ -468,7 +519,11 @@ Returns number of the words analyzed.
 
 =item keyword_summary($text, { params })
 
-Given a text to analyze, returns an array of keywords.  Either any properties described in the C<CONTROLLING THE BEHAVIOUR> section or the parameters of the C<keyword> member function could be set as parameters.
+=item file_keyword_summary($file)
+
+=item file_keyword_summray($file, { params })
+
+Given a text or a filename to analyze, returns an array of keywords.  Either any properties described in the C<CONTROLLING THE BEHAVIOUR> section or the parameters of the C<keywords> member function could be set as parameters.
 
 =item NG()
 
@@ -485,6 +540,7 @@ Kazuho Oku E<lt>kazuhooku ___at___ gmail.comE<gt>
 Thanks to Takesako-san for writing the prototype.
 
 =head1 COPYRIGHT
+
 Copyright (C) 2006  Cybozu Labs, Inc.
 
 This library is free software; you can redistribute it and/or modify it under the same terms as Perl itself, either Perl version 5.8.7 or, at your option, any later version of Perl 5 you may have available.

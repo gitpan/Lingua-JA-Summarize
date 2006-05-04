@@ -1,4 +1,4 @@
-Lingua-JA-Summarize version 0.04
+Lingua-JA-Summarize version 0.05
 ================================
 
 Lingua::JA::Summarize is a keyword extractor / summary generator for
@@ -17,7 +17,7 @@ DEPENDENCIES
 
 MeCab is required to use this module.
 
-COPYRIGHT AND LICENCE
+COPYRIGHT AND LICENSE
 
 Copyright (C) 2006  Cybozu Labs, Inc.
 

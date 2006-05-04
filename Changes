@@ -1,5 +1,11 @@
 Revision history for Perl extension Lingua::JA::Summarize.
 
+0.05  Thr May 04 14:10:01 2006
+	- %LJS_Defaults and %LJS_Defaults_keywords available for modifying default preferences
+	- preferences can be set through environment variables
+	- remove tests thought to be dependent to mecab version (or to the dictionary used)
+	- [win32] test suite now defaults to shift_jis and expects mecab in C:/Program Files/MeCab
+
 0.04  Tue May 02 04:45:01 2006
 	- default preferences now set by %Defaults
 	- support for non-EUC charsets

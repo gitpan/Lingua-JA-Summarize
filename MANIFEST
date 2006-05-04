@@ -8,5 +8,6 @@ t/00-util.t
 t/01-new.t
 t/02-keyword.t
 t/data/kyoto.txt
+t/data/kyoto_sjis.txt
 t/data/nobunaga.txt
 META.yml                                 Module meta-data (added by MakeMaker)
