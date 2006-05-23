@@ -3,7 +3,7 @@ package Lingua::JA::Summarize;
 use strict;
 use warnings;
 
-our $VERSION = 0.05;
+our $VERSION = 0.06;
 our @EXPORT_OK =
     qw(keyword_summary file_keyword_summary
         %LJS_Defaults %LJS_Defaults_keywords);
@@ -191,6 +191,7 @@ sub analyze {
                 } else {
                     $add_longword->();
                     $self->_add_word($word, $pw);
+                    next;
                 }
             } else {
                 $add_longword->();

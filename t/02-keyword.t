@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 14;
+use Test::More tests => 18;
 
 use Lingua::JA::Summarize qw(:all);
 
@@ -65,3 +65,18 @@ is(Jcode::convert((file_keyword_summary('t/data/kyoto_sjis.txt',
                   'euc', 'sjis'),
    '京都',
    'charset');
+
+is(join(',', keyword_summary('認証api', {
+    minwords => 2,
+})), '認証api', 'jaascii_as_word');
+is(join(',', sort(keyword_summary('認証api', {
+    minwords => 2,
+    jaascii_as_word => 0,
+}))), 'api,認証', 'jaascii_as_word 2');
+is(join(',', sort(keyword_summary('lambda関数', {
+    minwords => 2,
+}))), 'lambda関数', 'jaascii_as_word 3');
+is(join(',', sort(keyword_summary('lambda関数', {
+    minwords => 2,
+    jaascii_as_word => 0,
+}))), 'lambda,関数', 'jaascii_as_word 4');

@@ -1,5 +1,8 @@
 Revision history for Perl extension Lingua::JA::Summarize.
 
+0.06  Tue May 23 11:25:01 2006
+	- [bugfix] when jaascii_as_word set to false, words like 'lamdba関数' were treated as single words
+
 0.05  Thr May 04 14:10:01 2006
 	- %LJS_Defaults and %LJS_Defaults_keywords available for modifying default preferences
 	- preferences can be set through environment variables
