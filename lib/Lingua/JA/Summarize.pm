@@ -3,7 +3,7 @@ package Lingua::JA::Summarize;
 use strict;
 use warnings;
 
-our $VERSION = 0.06;
+our $VERSION = 0.07;
 our @EXPORT_OK =
     qw(keyword_summary file_keyword_summary
         %LJS_Defaults %LJS_Defaults_keywords);
@@ -50,6 +50,9 @@ foreach my $k (keys %Defaults) {
     my $n = 'LJS_' . uc($k);
     $LJS_Defaults{$k} = $ENV{$n} if defined $ENV{$n};
 }
+
+our %LJS_ascii_words = ();
+our %LJS_encoded_words = ();
 
 __PACKAGE__->mk_accessors(keys %Defaults, qw(stats wordcount));
 
@@ -217,6 +220,7 @@ sub analyze {
 sub _add_word {
     my ($self, $word, $cost) = @_;
     return if $cost <= 0;
+    return if $self->_ng_word($word);
     $self->{wordcount}++;
     Jcode::convert(\$word, $self->charset, 'euc') if $self->charset ne 'euc';
     my $target = $self->{stats}->{$word};
@@ -279,34 +283,26 @@ sub _postfilter {
     $word;
 }
 
-sub _encode_ascii_char {
-    my ($ch) = @_;
-    my $offset = ord('a');
-    return 'q' . chr(int($ch / 16) + $offset) . chr($ch % 16 + $offset);
-}
-
-sub _decode_ascii_char {
-    my ($str) = @_;
-    my $offset = ord('a');
-    return
-        chr((ord(substr($str, 1, 1)) - $offset) * 16 +
-                ord(substr($str, 2, 1)) - $offset);
-}
-
 sub _encode_ascii_word {
     my ($word) = @_;
-    
-    $word =~ s/([^A-Za-pr-z])/_encode_ascii_char(ord($1))/eg;
-    
-    $word;
+    return $word if $word !~ /^qz[a-z]{9}q$/ && $word =~ /^([A-Za-z]{1,25}|[0-9]{1,25})$/;
+    return $LJS_encoded_words{$word} if ($LJS_encoded_words{$word});
+    for(;;){
+        my $p="qz";
+        for(1..9){$p.=('a'..'z')[int rand 26];}
+        $p.="q";
+        unless ($LJS_encoded_words{$word}) {
+            $LJS_encoded_words{$word} = $p;
+            $LJS_ascii_words{$p} = $word;
+            return $p;
+        }
+    }
 }
 
 sub _decode_ascii_word {
     my ($word) = @_;
-    
-    $word =~ s/(q[a-p]{2})/_decode_ascii_char($1)/eg;
-    
-    $word;
+    return $LJS_ascii_words{$word} if ($LJS_ascii_words{$word});
+    return $word;
 }
 
 sub _normalize_japanese {
