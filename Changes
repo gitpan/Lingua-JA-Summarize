@@ -1,11 +1,14 @@
 Revision history for Perl extension Lingua::JA::Summarize.
 
-0.07  Mon Mar 19 14:26:16 2007
-	- modify encoding scheme for alnum words (to support mecab 0.94)
-	- support blacklisting of words re-joined by LJS
+0.08  Tue Aug 12 19:03:00 2008
+	- move mecab handler to separate class
+	- more stopwords
+	- add concat_noun flag to control word concatenation behaviour
+	- [bugfix] do not block words starting with patterns that exist in ng_words
+	- [bugfix] use utf8::decode for counting characters
 
 0.06  Tue May 23 11:25:01 2006
-	- [bugfix] when jaascii_as_word set to false, words like 'lamdba´Ø¿ô' were treated as single words
+	- [bugfix] when jaascii_as_word set to false, words like 'lamdba$B4X?t(B' were treated as single words
 
 0.05  Thr May 04 14:10:01 2006
 	- %LJS_Defaults and %LJS_Defaults_keywords available for modifying default preferences

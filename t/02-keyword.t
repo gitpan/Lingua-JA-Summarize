@@ -18,12 +18,12 @@ my $s = Lingua::JA::Summarize->new;
 
 undef $@;
 eval {
-    $s->analyze('This is a test.');
+    $s->analyze('The quick brown fox jumps over the lazy dog.');
 };
 is($@, '', 'analyze');
-is($s->stats->{this}->{count}, 1, 'check word count');
-is($s->stats->{this}->{cost}, 2000, 'check word cost');
-is(int($s->{stats}->{this}->{weight}), 41, 'check word weight');
+is($s->stats->{quick}->{count}, 1, 'check word count');
+is($s->stats->{quick}->{cost}, 2000, 'check word cost');
+is(int($s->{stats}->{quick}->{weight}), 23, 'check word weight');
 
 eval {
     $s->analyze('This is a test.');
@@ -39,7 +39,7 @@ ok($@ =~ /^failed to open/, 'analyze nonexistent file');
 undef $@;
 
 $s = Lingua::JA::Summarize->new;
-$s->analyze('A A A A A A A A A A');
+$s->analyze('brown brown brown brown brown brown');
 is($s->keywords, 1, 'get keyword');
 
 $s = Lingua::JA::Summarize->new;
@@ -55,7 +55,16 @@ is($s->keywords({ minwords => 10, maxwords => 10, threshold => 1000 }),
 $s = Lingua::JA::Summarize->new;
 $s->analyze_file('t/data/nobunaga.txt');
 
-is(keyword_summary('This is a test.', { threshold => -1000 }), 4, 'static method');
+is(
+    keyword_summary(
+        'The quick brown fox jumps over the lazy dog.',
+        {   maxwords => 10,
+            threshold => -1000,
+        },
+    ),
+    7,
+    'static method',
+);
 
 is((file_keyword_summary('t/data/kyoto.txt'))[0], 'ตþลิ',
    'file_keyword_summary');

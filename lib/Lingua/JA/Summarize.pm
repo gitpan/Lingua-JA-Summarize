@@ -3,7 +3,7 @@ package Lingua::JA::Summarize;
 use strict;
 use warnings;
 
-our $VERSION = 0.07;
+our $VERSION = 0.08;
 our @EXPORT_OK =
     qw(keyword_summary file_keyword_summary
         %LJS_Defaults %LJS_Defaults_keywords);
@@ -14,36 +14,39 @@ our %EXPORT_TAGS = (
 use base qw(Exporter Class::Accessor::Fast Class::ErrorHandler);
 
 use Carp;
+use Encode;
 use File::Temp qw(:POSIX);
 use Jcode;
-
+use Lingua::JA::Summarize::Mecab;
 
 sub NG () {
-    my %map = map { $_ => 1 } (
+    +{ map { $_ => 1 } (
         '(', ')', '#', ',', '"', "'", '`',
-        qw(! $ % & * + - . / : ; < = > ? @ [ \ ] ^ _ { | } ~
-           ¿Í ÉÃ Ê¬ »þ Æü ·î Ç¯ ±ß ¥É¥ë
-           °ì Æó »° »Í ¸Þ Ï» ¼· È¬ ¶å ½½ É´ Àé Ëü ²¯ Ãû
-           ¢¬ ¢­ ¢« ¢ª ¢Í ¢Î),
-    );
-    return \%map;
+        qw(! $ % & * + - . / : ; < = > ? @ [ \ ] ^ _ { | } ~),
+        qw(¿Í ÉÃ Ê¬ »þ Æü ·î Ç¯ ±ß ¥É¥ë),
+        qw(°ì Æó »° »Í ¸Þ Ï» ¼· È¬ ¶å ½½ É´ Àé Ëü ²¯ Ãû),
+        qw(¢¬ ¢­ ¢« ¢ª ¢Í ¢Î ¡À ¡° ¡® ¡³),
+        qw(a any the who he she i to and in you is you str this ago about and new as of for if or it have by into at on an are were was be my am your we them there their from all its),
+    ) };
 }
 
-sub DEFAULT_COST_FACTOR () {
-    return 2000;
-}
+sub DEFAULT_COST_FACTOR () { 2000 }
 
 my %Defaults = (
-    alnum_as_word => 1,
-    charset => 'euc',
-    default_cost => 1,
-    jaascii_as_word => 1,
-    ng => NG(),
-    mecab => 'mecab',
-    mecab_charset => 'euc',
-    omit_number => 1,
+    alnum_as_word     => 1,
+    concat_nouns      => 1,
+    charset           => 'euc',
+    default_cost      => 1,
+    jaascii_as_word   => 1,
+    ng                => NG(),
+    mecab             => 'mecab',
+    mecab_charset     => 'euc',
+    mecab_factory     => sub {
+        Lingua::JA::Summarize::Mecab->new(@_),
+    },
+    omit_number       => 1,
     singlechar_factor => 0.5,
-    url_as_word => 1,
+    url_as_word       => 1,
 );
 our %LJS_Defaults = ();
 foreach my $k (keys %Defaults) {
@@ -64,7 +67,6 @@ sub new {
         %LJS_Defaults,
         ($fields ? %$fields : ()),
     }, $class;
-    
     $self->{wordcount} = 0;
     
     return $self;
@@ -135,18 +137,7 @@ sub analyze {
     close $fh;
     
     # open mecab
-    my $mecab = $self->mecab;
-    my $def_cost = $self->default_cost * DEFAULT_COST_FACTOR;
-    my $mecab_cmd = join(' ', (
-        $mecab,
-        q(--node-format="%m\t%pn\t%pw\t%H\n"),
-        sprintf(
-            q(--unk-format="%%m\t%d\t%d\tUnkType\n"), $def_cost, $def_cost),
-        q(--bos-format="\n"),
-        q(--eos-format="\n"),
-        $tempfile,
-    ));
-    open $fh, '-|', $mecab_cmd or croak("failed to call mecab ($mecab): $!");
+    my $mecab = $self->mecab_factory->($self, $tempfile);
     
     # read from mecab
     my $longword = {
@@ -164,8 +155,8 @@ sub analyze {
         $longword->{cost} = 0;
         $longword->{count} = 0;
     };
-    while (my $line = <$fh>) {
-        chomp($line);
+    while (my $line = $mecab->getline) {
+        chomp $line;
         Jcode::convert(\$line, 'euc', $self->mecab_charset)
                 if $self->mecab_charset ne 'euc';
         if ($line =~ /\t/o) {
@@ -184,6 +175,9 @@ sub analyze {
                 } elsif (! $longword->{text} && $H =~ /ÀÜÈø/) {
                     # ng
                     next;
+                }
+                if (! $self->concat_nouns && $H !~ /ÀÜÈø/) {
+                    $add_longword->();
                 }
             } elsif ($H eq 'UnkType') {
                 # handle unknown (mostly English) words
@@ -208,7 +202,6 @@ sub analyze {
         }
     }
     $add_longword->();
-    close $fh;
     unlink($tempfile);
     
     # calculate tf-idf
@@ -239,7 +232,7 @@ sub _calc_weight {
         $cost = $self->default_cost * DEFAULT_COST_FACTOR unless $cost;
         $target->{weight} =
             ($target->{count} - 0.5) * $cost / $self->{wordcount} / 6;
-        if (length($word) == 1) {
+        if ($self->_is_singlechar($word)) {
             $target->{weight} *= $self->singlechar_factor;
         }
     }
@@ -255,9 +248,9 @@ sub _normalize_word {
 sub _ng_word {
     my ($self, $word) = @_;
     return 1 if $self->omit_number && $word =~ /^\d*$/;
-    return
-        exists($self->{ng}->{$word}) ||
-            exists($self->{ng}->{substr($word, 0, 1)});
+    return 1 if exists $self->{ng}->{$word};
+    return 1 if $word !~ /[\w\x80-\xff]/;
+    undef;
 }
 
 sub _prefilter {
@@ -281,6 +274,13 @@ sub _postfilter {
         $word = _decode_ascii_word($word);
     }
     $word;
+}
+
+sub _is_singlechar {
+    my ($self, $word) = @_;
+    my $enc = $self->charset;
+    $enc = 'euc-jp' if $enc eq 'euc';
+    1 == length decode($enc, $word);
 }
 
 sub _encode_ascii_word {
@@ -336,7 +336,6 @@ sub file_keyword_summary {
     $s->analyze_file($file);
     return $s->keywords($args);
 }
-
 
 1;
 __END__
@@ -538,7 +537,7 @@ Thanks to Takesako-san for writing the prototype.
 
 =head1 COPYRIGHT
 
-Copyright (C) 2006  Cybozu Labs, Inc.
+Copyright (C) 2006-2008  Cybozu Labs, Inc.
 
 This library is free software; you can redistribute it and/or modify it under the same terms as Perl itself, either Perl version 5.8.7 or, at your option, any later version of Perl 5 you may have available.
 
